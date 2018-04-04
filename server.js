@@ -99,7 +99,9 @@ app.use(function(err, req, res, next){
 });
 
 
-app.listen(port, ip);
+
+var server = app.listen(port, ip);
 console.log('Server running on http://%s:%s', ip, port);
+setTimeout('server.close()', 10000);
 
 module.exports = app ;
