@@ -1,108 +1,122 @@
-//  OpenShift sample Node application
-var express = require('express'),
-    app     = express(),
-    morgan  = require('morgan');
-    
-Object.assign=require('object-assign')
+// http://ejohn.org/blog/ecmascript-5-strict-mode-json-and-more/
+"use strict";
 
-app.engine('html', require('ejs').renderFile);
-app.use(morgan('combined'))
+// Optional. You will see this name in eg. 'ps' or 'top' command
+process.title = 'node-chat';
 
-var port = process.env.PORT || process.env.OPENSHIFT_NODEJS_PORT || 8080,
-    ip   = process.env.IP   || process.env.OPENSHIFT_NODEJS_IP || '0.0.0.0',
-    mongoURL = process.env.OPENSHIFT_MONGODB_DB_URL || process.env.MONGO_URL,
-    mongoURLLabel = "";
+// Port where we'll run the websocket server
+var webSocketsServerPort = 1337;
 
-if (mongoURL == null && process.env.DATABASE_SERVICE_NAME) {
-  var mongoServiceName = process.env.DATABASE_SERVICE_NAME.toUpperCase(),
-      mongoHost = process.env[mongoServiceName + '_SERVICE_HOST'],
-      mongoPort = process.env[mongoServiceName + '_SERVICE_PORT'],
-      mongoDatabase = process.env[mongoServiceName + '_DATABASE'],
-      mongoPassword = process.env[mongoServiceName + '_PASSWORD']
-      mongoUser = process.env[mongoServiceName + '_USER'];
+// websocket and http servers
+var webSocketServer = require('websocket').server;
+var http = require('http');
 
-  if (mongoHost && mongoPort && mongoDatabase) {
-    mongoURLLabel = mongoURL = 'mongodb://';
-    if (mongoUser && mongoPassword) {
-      mongoURL += mongoUser + ':' + mongoPassword + '@';
-    }
-    // Provide UI label that excludes user id and pw
-    mongoURLLabel += mongoHost + ':' + mongoPort + '/' + mongoDatabase;
-    mongoURL += mongoHost + ':' +  mongoPort + '/' + mongoDatabase;
+/**
+ * Global variables
+ */
+// latest 100 messages
+var history = [ ];
+// list of currently connected clients (users)
+var clients = [ ];
 
-  }
+/**
+ * Helper function for escaping input strings
+ */
+function htmlEntities(str) {
+  return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
-var db = null,
-    dbDetails = new Object();
 
-var initDb = function(callback) {
-  if (mongoURL == null) return;
+// Array with some colors
+var colors = [ 'red', 'green', 'blue', 'magenta', 'purple', 'plum', 'orange' ];
+// ... in random order
+colors.sort(function(a,b) { return Math.random() > 0.5; } );
 
-  var mongodb = require('mongodb');
-  if (mongodb == null) return;
+/**
+ * HTTP server
+ */
+var server = http.createServer(function(request, response) {
+  // Not important for us. We're writing WebSocket server, not HTTP server
+});
+server.listen(webSocketsServerPort, function() {
+  console.log((new Date()) + " Server is listening on port " + webSocketsServerPort);
+});
 
-  mongodb.connect(mongoURL, function(err, conn) {
-    if (err) {
-      callback(err);
-      return;
-    }
+/**
+ * WebSocket server
+ */
+var wsServer = new webSocketServer({
+  // WebSocket server is tied to a HTTP server. WebSocket request is just
+  // an enhanced HTTP request. For more info http://tools.ietf.org/html/rfc6455#page-6
+  httpServer: server
+});
 
-    db = conn;
-    dbDetails.databaseName = db.databaseName;
-    dbDetails.url = mongoURLLabel;
-    dbDetails.type = 'MongoDB';
+// This callback function is called every time someone
+// tries to connect to the WebSocket server
+wsServer.on('request', function(request) {
+  console.log((new Date()) + ' Connection from origin ' + request.origin + '.');
 
-    console.log('Connected to MongoDB at: %s', mongoURL);
-  });
-};
+  // accept connection - you should check 'request.origin' to make sure that
+  // client is connecting from your website
+  // (http://en.wikipedia.org/wiki/Same_origin_policy)
+  var connection = request.accept(null, request.origin);
+  // we need to know client index to remove them on 'close' event
+  var index = clients.push(connection) - 1;
+  var userName = false;
+  var userColor = false;
 
-app.get('/', function (req, res) {
-  // try to initialize the db on every request if it's not already
-  // initialized.
-  if (!db) {
-    initDb(function(err){});
+  console.log((new Date()) + ' Connection accepted.');
+
+  // send back chat history
+  if (history.length > 0) {
+    connection.sendUTF(JSON.stringify( { type: 'history', data: history} ));
   }
-  if (db) {
-    var col = db.collection('counts');
-    // Create a document with request IP and current time of request
-    col.insert({ip: req.ip, date: Date.now()});
-    col.count(function(err, count){
-      if (err) {
-        console.log('Error running count. Message:\n'+err);
+
+  // user sent some message
+  connection.on('message', function(message) {
+    if (message.type === 'utf8') { // accept only text
+      if (userName === false) { // first message sent by user is their name
+        // remember user name
+        userName = htmlEntities(message.utf8Data);
+        // get random color and send it back to the user
+        userColor = colors.shift();
+        connection.sendUTF(JSON.stringify({ type:'color', data: userColor }));
+        console.log((new Date()) + ' User is known as: ' + userName
+          + ' with ' + userColor + ' color.');
+
+      } else { // log and broadcast the message
+        console.log((new Date()) + ' Received Message from '
+          + userName + ': ' + message.utf8Data);
+
+        // we want to keep history of all sent messages
+        var obj = {
+          time: (new Date()).getTime(),
+          text: htmlEntities(message.utf8Data),
+          author: userName,
+          color: userColor
+        };
+        history.push(obj);
+        history = history.slice(-100);
+
+        // broadcast message to all connected clients
+        var json = JSON.stringify({ type:'message', data: obj });
+        for (var i=0; i < clients.length; i++) {
+          clients[i].sendUTF(json);
+        }
       }
-      res.render('index.html', { pageCountMessage : count, dbInfo: dbDetails });
-    });
-  } else {
-    res.render('index.html', { pageCountMessage : null});
-  }
+    }
+  });
+
+  // user disconnected
+  connection.on('close', function(connection) {
+    if (userName !== false && userColor !== false) {
+      console.log((new Date()) + " Peer "
+        + connection.remoteAddress + " disconnected.");
+      // remove user from the list of connected clients
+      clients.splice(index, 1);
+      // push back user's color to be reused by another user
+      colors.push(userColor);
+    }
+  });
+
 });
-
-app.get('/pagecount', function (req, res) {
-  // try to initialize the db on every request if it's not already
-  // initialized.
-  if (!db) {
-    initDb(function(err){});
-  }
-  if (db) {
-    db.collection('counts').count(function(err, count ){
-      res.send('{ pageCount: ' + count + '}');
-    });
-  } else {
-    res.send('{ pageCount: -1 }');
-  }
-});
-
-// error handling
-app.use(function(err, req, res, next){
-  console.error(err.stack);
-  res.status(500).send('Something bad happened!');
-});
-
-initDb(function(err){
-  console.log('Error connecting to Mongo. Message:\n'+err);
-});
-
-app.listen(port, ip);
-console.log('Server running on http://%s:%s', ip, port);
-
-module.exports = app ;
