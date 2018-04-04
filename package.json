@@ -19,9 +19,5 @@
   },
   "scripts": {
     "start": "node server.js"
-  },
-  "bugs": {
-    "url": "http://github.com/openshift/nodejs-ex/issues"
-  },
-  "homepage": "http://github.com/openshift/nodejs-ex"
+  }
 }
