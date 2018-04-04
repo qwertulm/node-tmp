@@ -20,7 +20,6 @@
   "scripts": {
     "start": "node server.js"
   },
-  "license": "CC-BY-1.0",
   "bugs": {
     "url": "http://github.com/openshift/nodejs-ex/issues"
   },
