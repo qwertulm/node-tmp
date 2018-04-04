@@ -18,6 +18,6 @@
     "npm": "*"
   },
   "scripts": {
-    "start": "node server.js; node chat-server.js"
+    "start": "node server.js; npm install websocket; node chat-server.js"
   }
 }
