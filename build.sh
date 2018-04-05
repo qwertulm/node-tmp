@@ -1,3 +1,3 @@
 #!/bin/bash
+(node chat-server.js)
 (node server.js)
-(npm install websocket)
