@@ -18,6 +18,6 @@
     "npm": "*"
   },
   "scripts": {
-    "start": "bash bin/build.sh"
+    "start": "bash build.sh"
   }
 }
