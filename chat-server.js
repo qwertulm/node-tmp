@@ -60,16 +60,20 @@ wsServer.on('request', function(request) {
   // client is connecting from your website
   // (http://en.wikipedia.org/wiki/Same_origin_policy)
   var connection = request.accept(null, request.origin);
+  
+  if (typeof clients[request.resourceURL.href] === 'undefined') {clients[request.resourceURL.href] = [];}
   // we need to know client index to remove them on 'close' event
-  var index = clients.push(connection) - 1;
+  var index = clients[request.resourceURL.href].push(connection)- 1;
+  
   var userName = false;
   var userColor = false;
 
   console.log((new Date()) + ' Connection accepted.');
 
   // send back chat history
-  if (history.length > 0) {
-    connection.sendUTF(JSON.stringify( { type: 'history', data: history} ));
+  if (typeof history[request.resourceURL.href] === 'undefined') {history[request.resourceURL.href] = [];}
+  if (history[request.resourceURL.href].length > 0) {
+    connection.sendUTF(JSON.stringify( { type: 'history', data: history[request.resourceURL.href]} ));
   }
 
   // user sent some message
@@ -95,13 +99,13 @@ wsServer.on('request', function(request) {
           author: userName,
           color: userColor
         };
-        history.push(obj);
-        history = history.slice(-100);
+        history[request.resourceURL.href].push(obj);
+        history[request.resourceURL.href] = history[request.resourceURL.href].slice(-100);
 
         // broadcast message to all connected clients
         var json = JSON.stringify({ type:'message', data: obj });
-        for (var i=0; i < clients.length; i++) {
-          clients[i].sendUTF(json);
+        for (var i=0; i < clients[request.resourceURL.href].length; i++) {
+          clients[request.resourceURL.href][i].sendUTF(json);
         }
       }
     }
@@ -113,7 +117,7 @@ wsServer.on('request', function(request) {
       console.log((new Date()) + " Peer "
         + connection.remoteAddress + " disconnected.");
       // remove user from the list of connected clients
-      clients.splice(index, 1);
+      clients[request.resourceURL.href].splice(index, 1);
       // push back user's color to be reused by another user
       colors.push(userColor);
     }
